@@ -1,249 +1,229 @@
 /*
- * libpmem: IO engine that uses PMDK libpmem to read and write data
+ * Skeleton for a sample external io engine
  *
- * Copyright (C) 2017 Nippon Telegraph and Telephone Corporation.
- * Copyright 2018-2021, Intel Corporation
+ * Should be compiled with:
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License,
- * version 2 as published by the Free Software Foundation..
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
+ * gcc -Wall -O2 -g -D_GNU_SOURCE -include ../config-host.h -shared -rdynamic -fPIC -o skeleton_external.o skeleton_external.c
+ * (also requires -D_GNU_SOURCE -DCONFIG_STRSEP on Linux)
  *
  */
-
-/*
- * libpmem engine
- *
- * IO engine that uses libpmem (part of PMDK collection) to write data
- *	and libc's memcpy to read. It requires PMDK >= 1.5.
- *
- * To use:
- *   ioengine=libpmem
- *
- * Other relevant settings:
- *   iodepth=1
- *   direct=1
- *   sync=1
- *   directory=/mnt/pmem0/
- *   bs=4k
- *
- *   sync=1 means that pmem_drain() is executed for each write operation.
- *   Otherwise is not and should be called on demand.
- *
- *   direct=1 means PMEM_F_MEM_NONTEMPORAL flag is set in pmem_memcpy().
- *
- *   The pmem device must have a DAX-capable filesystem and be mounted
- *   with DAX enabled. Directory must point to a mount point of DAX FS.
- *
- *   Example:
- *     mkfs.xfs /dev/pmem0
- *     mkdir /mnt/pmem0
- *     mount -o dax /dev/pmem0 /mnt/pmem0
- *
- * See examples/libpmem.fio for complete usage example.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
-#include <libpmem.h>
+#include <assert.h>
 
 #include "../fio.h"
-#include "../verify.h"
+#include "../optgroup.h"
 
-struct fio_libpmem_data {
-	void *libpmem_ptr;
-	size_t libpmem_sz;
-	off_t libpmem_off;
+/*
+ * The core of the module is identical to the ones included with fio,
+ * read those. You cannot use register_ioengine() and unregister_ioengine()
+ * for external modules, they should be gotten through dlsym()
+ */
+
+/*
+ * The io engine can define its own options within the io engine source.
+ * The option member must not be at offset 0, due to the way fio parses
+ * the given option. Just add a padding pointer unless the io engine has
+ * something usable.
+ */
+struct fio_skeleton_options {
+	void *pad; /* avoid ->off1 of fio_option becomes 0 */
+	unsigned int dummy;
 };
 
-static int fio_libpmem_init(struct thread_data *td)
+static struct fio_option options[] = {
+	{
+		.name	= "dummy",
+		.lname	= "ldummy",
+		.type	= FIO_OPT_STR_SET,
+		.off1	= offsetof(struct fio_skeleton_options, dummy),
+		.help	= "Set dummy",
+		.category = FIO_OPT_C_ENGINE, /* always use this */
+		.group	= FIO_OPT_G_INVALID, /* this can be different */
+	},
+	{
+		.name	= NULL,
+	},
+};
+
+/*
+ * The ->event() hook is called to match an event number with an io_u.
+ * After the core has called ->getevents() and it has returned eg 3,
+ * the ->event() hook must return the 3 events that have completed for
+ * subsequent calls to ->event() with [0-2]. Required.
+ */
+static struct io_u *fio_skeleton_event(struct thread_data *td, int event)
 {
-	struct thread_options *o = &td->o;
+	return NULL;
+}
 
-	dprint(FD_IO, "o->rw_min_bs %llu\n o->fsync_blocks %u\n o->fdatasync_blocks %u\n",
-			o->rw_min_bs, o->fsync_blocks, o->fdatasync_blocks);
-	dprint(FD_IO, "DEBUG fio_libpmem_init\n");
-
-	if ((o->rw_min_bs & page_mask) &&
-	    (o->fsync_blocks || o->fdatasync_blocks)) {
-		log_err("libpmem: mmap options dictate a minimum block size of "
-				"%llu bytes\n",	(unsigned long long) page_size);
-		return 1;
-	}
+/*
+ * The ->getevents() hook is used to reap completion events from an async
+ * io engine. It returns the number of completed events since the last call,
+ * which may then be retrieved by calling the ->event() hook with the event
+ * numbers. Required.
+ */
+static int fio_skeleton_getevents(struct thread_data *td, unsigned int min,
+				  unsigned int max, const struct timespec *t)
+{
 	return 0;
 }
 
 /*
- * This is the pmem_map_file execution function, a helper to
- * fio_libpmem_open_file function.
+ * The ->cancel() hook attempts to cancel the io_u. Only relevant for
+ * async io engines, and need not be supported.
  */
-static int fio_libpmem_file(struct thread_data *td, struct fio_file *f,
-			    size_t length, off_t off)
+static int fio_skeleton_cancel(struct thread_data *td, struct io_u *io_u)
 {
-	struct fio_libpmem_data *fdd = FILE_ENG_DATA(f);
-	mode_t mode = S_IWUSR | S_IRUSR;
-	size_t mapped_len;
-	int is_pmem;
-
-	dprint(FD_IO, "DEBUG fio_libpmem_file\n");
-	dprint(FD_IO, "f->file_name = %s td->o.verify = %d \n", f->file_name,
-			td->o.verify);
-	dprint(FD_IO, "length = %ld f->fd = %d off = %ld file mode = %d \n",
-			length, f->fd, off, mode);
-
-	/* unmap any existing mapping */
-	if (fdd->libpmem_ptr) {
-		dprint(FD_IO,"pmem_unmap \n");
-		if (pmem_unmap(fdd->libpmem_ptr, fdd->libpmem_sz) < 0)
-			return errno;
-		fdd->libpmem_ptr = NULL;
-	}
-
-	if((fdd->libpmem_ptr = pmem_map_file(f->file_name, length, PMEM_FILE_CREATE, mode, &mapped_len, &is_pmem)) == NULL) {
-		td_verror(td, errno, pmem_errormsg());
-		goto err;
-	}
-
-	if (!is_pmem) {
-		td_verror(td, errno, "file_name does not point to persistent memory");
-	}
-
-err:
-	if (td->error && fdd->libpmem_ptr)
-		pmem_unmap(fdd->libpmem_ptr, length);
-
-	return td->error;
-}
-
-static int fio_libpmem_open_file(struct thread_data *td, struct fio_file *f)
-{
-	struct fio_libpmem_data *fdd;
-
-	dprint(FD_IO, "DEBUG fio_libpmem_open_file\n");
-	dprint(FD_IO, "f->io_size=%ld\n", f->io_size);
-	dprint(FD_IO, "td->o.size=%lld\n", td->o.size);
-	dprint(FD_IO, "td->o.iodepth=%d\n", td->o.iodepth);
-	dprint(FD_IO, "td->o.iodepth_batch=%d\n", td->o.iodepth_batch);
-
-	if (fio_file_open(f))
-		td_io_close_file(td, f);
-
-	fdd = calloc(1, sizeof(*fdd));
-	if (!fdd) {
-		return 1;
-	}
-	FILE_SET_ENG_DATA(f, fdd);
-	fdd->libpmem_sz = f->io_size;
-	fdd->libpmem_off = 0;
-
-	return fio_libpmem_file(td, f, fdd->libpmem_sz, fdd->libpmem_off);
-}
-
-static int fio_libpmem_prep(struct thread_data *td, struct io_u *io_u)
-{
-	struct fio_file *f = io_u->file;
-	struct fio_libpmem_data *fdd = FILE_ENG_DATA(f);
-
-	dprint(FD_IO, "DEBUG fio_libpmem_prep\n");
-	dprint(FD_IO, "io_u->offset %llu : fdd->libpmem_off %ld : "
-			"io_u->buflen %llu : fdd->libpmem_sz %ld\n",
-			io_u->offset, fdd->libpmem_off,
-			io_u->buflen, fdd->libpmem_sz);
-
-	if (io_u->buflen > f->real_file_size) {
-		log_err("libpmem: bs bigger than the file size\n");
-		return EIO;
-	}
-
-	io_u->mmap_data = fdd->libpmem_ptr + io_u->offset - fdd->libpmem_off
-				- f->file_offset;
 	return 0;
 }
 
-static enum fio_q_status fio_libpmem_queue(struct thread_data *td,
-					   struct io_u *io_u)
+/*
+ * The ->queue() hook is responsible for initiating io on the io_u
+ * being passed in. If the io engine is a synchronous one, io may complete
+ * before ->queue() returns. Required.
+ *
+ * The io engine must transfer in the direction noted by io_u->ddir
+ * to the buffer pointed to by io_u->xfer_buf for as many bytes as
+ * io_u->xfer_buflen. Residual data count may be set in io_u->resid
+ * for a short read/write.
+ */
+static enum fio_q_status fio_skeleton_queue(struct thread_data *td,
+					    struct io_u *io_u)
 {
-	unsigned flags = 0;
-
+	/*
+	 * Double sanity check to catch errant write on a readonly setup
+	 */
 	fio_ro_check(td, io_u);
-	io_u->error = 0;
 
-	dprint(FD_IO, "DEBUG fio_libpmem_queue\n");
-	dprint(FD_IO, "td->o.odirect %d td->o.sync_io %d\n",
-			td->o.odirect, td->o.sync_io);
-	/* map both O_SYNC / DSYNC to not use NODRAIN */
-	flags = td->o.sync_io ? 0 : PMEM_F_MEM_NODRAIN;
-	flags |= td->o.odirect ? PMEM_F_MEM_NONTEMPORAL : PMEM_F_MEM_TEMPORAL;
-
-	switch (io_u->ddir) {
-	case DDIR_READ:
-		memcpy(io_u->xfer_buf, io_u->mmap_data, io_u->xfer_buflen);
-		break;
-	case DDIR_WRITE:
-		dprint(FD_IO, "DEBUG mmap_data=%p, xfer_buf=%p\n",
-				io_u->mmap_data, io_u->xfer_buf);
-		pmem_memcpy(io_u->mmap_data,
-					io_u->xfer_buf,
-					io_u->xfer_buflen,
-					flags);
-		break;
-	case DDIR_SYNC:
-	case DDIR_DATASYNC:
-	case DDIR_SYNC_FILE_RANGE:
-		pmem_drain();
-		break;
-	default:
-		io_u->error = EINVAL;
-		break;
-	}
-
+	/*
+	 * Could return FIO_Q_QUEUED for a queued request,
+	 * FIO_Q_COMPLETED for a completed request, and FIO_Q_BUSY
+	 * if we could queue no more at this point (you'd have to
+	 * define ->commit() to handle that.
+	 */
 	return FIO_Q_COMPLETED;
 }
 
-static int fio_libpmem_close_file(struct thread_data *td, struct fio_file *f)
+/*
+ * The ->prep() function is called for each io_u prior to being submitted
+ * with ->queue(). This hook allows the io engine to perform any
+ * preparatory actions on the io_u, before being submitted. Not required.
+ */
+static int fio_skeleton_prep(struct thread_data *td, struct io_u *io_u)
 {
-	struct fio_libpmem_data *fdd = FILE_ENG_DATA(f);
-	int ret = 0;
-
-	dprint(FD_IO, "DEBUG fio_libpmem_close_file\n");
-
-	if (fdd->libpmem_ptr)
-		ret = pmem_unmap(fdd->libpmem_ptr, fdd->libpmem_sz);
-	if (fio_file_open(f))
-		ret &= generic_close_file(td, f);
-
-	FILE_SET_ENG_DATA(f, NULL);
-	free(fdd);
-
-	return ret;
+	return 0;
 }
 
-FIO_STATIC struct ioengine_ops ioengine = {
-	.name		= "libpmem",
+/*
+ * The init function is called once per thread/process, and should set up
+ * any structures that this io engine requires to keep track of io. Not
+ * required.
+ */
+static int fio_skeleton_init(struct thread_data *td)
+{
+	return 0;
+}
+
+/*
+ * This is paired with the ->init() function and is called when a thread is
+ * done doing io. Should tear down anything setup by the ->init() function.
+ * Not required.
+ */
+static void fio_skeleton_cleanup(struct thread_data *td)
+{
+}
+
+/*
+ * Hook for opening the given file. Unless the engine has special
+ * needs, it usually just provides generic_open_file() as the handler.
+ */
+static int fio_skeleton_open(struct thread_data *td, struct fio_file *f)
+{
+	return generic_open_file(td, f);
+}
+
+/*
+ * Hook for closing a file. See fio_skeleton_open().
+ */
+static int fio_skeleton_close(struct thread_data *td, struct fio_file *f)
+{
+	return generic_close_file(td, f);
+}
+
+/*
+ * Hook for getting the zoned model of a zoned block device for zonemode=zbd.
+ * The zoned model can be one of (see zbd_types.h):
+ * - ZBD_NONE: regular block device (zone emulation will be used)
+ * - ZBD_HOST_AWARE: host aware zoned block device
+ * - ZBD_HOST_MANAGED: host managed zoned block device
+ */
+static int fio_skeleton_get_zoned_model(struct thread_data *td,
+			struct fio_file *f, enum zbd_zoned_model *model)
+{
+	*model = ZBD_NONE;
+	return 0;
+}
+
+/*
+ * Hook called for getting zone information of a ZBD_HOST_AWARE or
+ * ZBD_HOST_MANAGED zoned block device. Up to @nr_zones zone information
+ * structures can be reported using the array zones for zones starting from
+ * @offset. The number of zones reported must be returned or a negative error
+ * code in case of error.
+ */
+static int fio_skeleton_report_zones(struct thread_data *td, struct fio_file *f,
+				     uint64_t offset, struct zbd_zone *zones,
+				     unsigned int nr_zones)
+{
+	return 0;
+}
+
+/*
+ * Hook called for resetting the write pointer position of zones of a
+ * ZBD_HOST_AWARE or ZBD_HOST_MANAGED zoned block device. The write pointer
+ * position of all zones in the range @offset..@offset + @length must be reset.
+ */
+static int fio_skeleton_reset_wp(struct thread_data *td, struct fio_file *f,
+				 uint64_t offset, uint64_t length)
+{
+	return 0;
+}
+
+/*
+ * Hook called for getting the maximum number of open zones for a
+ * ZBD_HOST_MANAGED zoned block device.
+ * A @max_open_zones value set to zero means no limit.
+ */
+static int fio_skeleton_get_max_open_zones(struct thread_data *td,
+					   struct fio_file *f,
+					   unsigned int *max_open_zones)
+{
+	return 0;
+}
+
+/*
+ * Note that the structure is exported, so that fio can get it via
+ * dlsym(..., "ioengine"); for (and only for) external engines.
+ */
+struct ioengine_ops ioengine = {
+	.name		= "engine_name",
 	.version	= FIO_IOOPS_VERSION,
-	.init		= fio_libpmem_init,
-	.prep		= fio_libpmem_prep,
-	.queue		= fio_libpmem_queue,
-	.open_file	= fio_libpmem_open_file,
-	.close_file	= fio_libpmem_close_file,
-	.get_file_size	= generic_get_file_size,
-	.prepopulate_file = generic_prepopulate_file,
-	.flags		= FIO_SYNCIO | FIO_RAWIO | FIO_DISKLESSIO | FIO_NOEXTEND |
-				FIO_NODISKUTIL | FIO_BARRIER | FIO_MEMALIGN,
+	.init		= fio_skeleton_init,
+	.prep		= fio_skeleton_prep,
+	.queue		= fio_skeleton_queue,
+	.cancel		= fio_skeleton_cancel,
+	.getevents	= fio_skeleton_getevents,
+	.event		= fio_skeleton_event,
+	.cleanup	= fio_skeleton_cleanup,
+	.open_file	= fio_skeleton_open,
+	.close_file	= fio_skeleton_close,
+	.get_zoned_model = fio_skeleton_get_zoned_model,
+	.report_zones	= fio_skeleton_report_zones,
+	.reset_wp	= fio_skeleton_reset_wp,
+	.get_max_open_zones = fio_skeleton_get_max_open_zones,
+	.options	= options,
+	.option_struct_size	= sizeof(struct fio_skeleton_options),
 };
-
-static void fio_init fio_libpmem_register(void)
-{
-	register_ioengine(&ioengine);
-}
-
-static void fio_exit fio_libpmem_unregister(void)
-{
-	unregister_ioengine(&ioengine);
-}
