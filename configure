@@ -179,6 +179,7 @@ gfio_check="no"
 libhdfs="no"
 devdax="no"
 pmem="no"
+chfs=""
 cuda="no"
 libcufile="no"
 disable_lex=""
@@ -246,6 +247,8 @@ for opt do
   --disable-optimizations) disable_opt="yes"
   ;;
   --disable-pmem) disable_pmem="yes"
+  ;;
+  --enable-chfs) chfs="yes"
   ;;
   --enable-cuda) cuda="yes"
   ;;
@@ -315,6 +318,7 @@ if test "$show_help" = "yes" ; then
   echo "--disable-libnfs        Disable nfs support"
   echo "--disable-lex           Disable use of lex/yacc for math"
   echo "--disable-pmem          Disable pmem based engines even if found"
+  echo "--enable-chfs           Enable chfs client support"
   echo "--enable-lex            Enable use of lex/yacc for math"
   echo "--disable-shm           Disable SHM support"
   echo "--disable-optimizations Don't enable compiler optimizations"
@@ -2315,6 +2319,22 @@ print_config "PMDK dev-dax engine" "$devdax"
 print_config "PMDK libpmem engine" "$pmem"
 
 ##########################################
+# Check whether we have libchfs
+if test "$chfs" != "no" ; then
+  if $(pkg-config chfs > /dev/null 2>&1); then
+    chfs="yes"
+    chfs_cflags=$(pkg-config --cflags chfs)
+    chfs_libs=$(pkg-config --libs chfs)
+  else
+    if test "$chfs" = "yes" ; then
+      feature_not_found "chfs" "chfs"
+    fi
+    chfs="no"
+  fi
+fi
+print_config "chfs" "$chfs"
+
+##########################################
 # Check whether we support DDN's IME
 if test "$libime" != "yes" ; then
   libime="no"
@@ -3267,6 +3287,11 @@ if test "$pmem" = "yes" ; then
 fi
 if test "$libpmem2" = "yes" ; then
   output_sym "CONFIG_LIBPMEM2_INSTALLED"
+fi
+if test "$chfs" = "yes" ; then
+  output_sym "CONFIG_CHFS"
+  echo "CHFS_CFLAGS=$chfs_cflags" >> $config_host_mak
+  echo "CHFS_LIBS=$chfs_libs" >> $config_host_mak
 fi
 if test "$libime" = "yes" ; then
   output_sym "CONFIG_IME"

@@ -15,6 +15,7 @@
 
 #include "../fio.h"
 #include "../optgroup.h"
+#include "chfs.h"
 
 /*
  * The core of the module is identical to the ones included with fio,
@@ -35,7 +36,7 @@ struct fio_skeleton_options {
 
 static struct fio_option options[] = {
 	{
-		.name	= "dummy",
+		.name	= "chfs",
 		.lname	= "ldummy",
 		.type	= FIO_OPT_STR_SET,
 		.off1	= offsetof(struct fio_skeleton_options, dummy),
@@ -209,7 +210,7 @@ static int fio_skeleton_get_max_open_zones(struct thread_data *td,
  * dlsym(..., "ioengine"); for (and only for) external engines.
  */
 struct ioengine_ops ioengine = {
-	.name		= "engine_name",
+	.name		= "chfs",
 	.version	= FIO_IOOPS_VERSION,
 	.init		= fio_skeleton_init,
 	.prep		= fio_skeleton_prep,
