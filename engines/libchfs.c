@@ -228,3 +228,13 @@ struct ioengine_ops ioengine = {
 	.options	= options,
 	.option_struct_size	= sizeof(struct fio_skeleton_options),
 };
+
+static void fio_init fio_chfs_register(void)
+{
+	register_ioengine(&ioengine);
+}
+
+static void fio_exit fio_chfs_unregister(void)
+{
+	unregister_ioengine(&ioengine);
+}
