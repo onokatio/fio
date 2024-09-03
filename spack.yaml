@@ -10,65 +10,41 @@ spack:
   concretizer:
     unify: true
   packages:
-    gettext:
+    libfuse:
       externals:
-      - spec: gettext@0.21
-        prefix: /usr
-    autoconf:
-      externals:
-      - spec: autoconf@2.71
-        prefix: /usr
-    perl:
-      externals:
-      - spec: perl@5.34.0~cpanm+opcode+open+shared+threads
-        prefix: /usr
-    git:
-      externals:
-      - spec: git@2.34.1~tcltk
-        prefix: /usr
-    tar:
-      externals:
-      - spec: tar@1.34
-        prefix: /usr
-    python:
-      externals:
-      - spec: python@3.10.12+bz2+crypt+ctypes+dbm+lzma+nis+pyexpat~pythoncmd+readline+sqlite3+ssl~tkinter+uuid+zlib
-        prefix: /usr
-    gawk:
-      externals:
-      - spec: gawk@5.1.0
-        prefix: /usr
-    groff:
-      externals:
-      - spec: groff@1.22.4
-        prefix: /usr
-    coreutils:
-      externals:
-      - spec: coreutils@8.32
-        prefix: /usr
-    libtool:
-      externals:
-      - spec: libtool@2.4.6
-        prefix: /usr
-    m4:
-      externals:
-      - spec: m4@1.4.18
-        prefix: /usr
-    openssl:
-      externals:
-      - spec: openssl@3.0.2
+      - spec: libfuse@3.10.5
         prefix: /usr
     curl:
       externals:
       - spec: curl@7.81.0+gssapi+ldap+nghttp2
         prefix: /usr
-    automake:
+    perl:
       externals:
-      - spec: automake@1.16.5
+      - spec: perl@5.34.0~cpanm+opcode+open+shared+threads
         prefix: /usr
-    pkg-config:
+    libtool:
       externals:
-      - spec: pkg-config@0.29.2
+      - spec: libtool@2.4.6
+        prefix: /usr
+    gmake:
+      externals:
+      - spec: gmake@4.3
+        prefix: /usr
+    autoconf:
+      externals:
+      - spec: autoconf@2.71
+        prefix: /usr
+    openssh:
+      externals:
+      - spec: openssh@8.9p1
+        prefix: /usr
+    openssl:
+      externals:
+      - spec: openssl@3.0.2
+        prefix: /usr
+    gawk:
+      externals:
+      - spec: gawk@5.1.0
         prefix: /usr
     diffutils:
       externals:
@@ -78,21 +54,49 @@ spack:
       externals:
       - spec: sed@4.8
         prefix: /usr
+    groff:
+      externals:
+      - spec: groff@1.22.4
+        prefix: /usr
+    pkg-config:
+      externals:
+      - spec: pkg-config@0.29.2
+        prefix: /usr
+    m4:
+      externals:
+      - spec: m4@1.4.18
+        prefix: /usr
     binutils:
       externals:
       - spec: binutils@2.38
         prefix: /usr
-    openssh:
+    python:
       externals:
-      - spec: openssh@8.9p1
+      - spec: python@3.10.12+bz2+crypt+ctypes+dbm+lzma+nis+pyexpat~pythoncmd+readline+sqlite3+ssl~tkinter+uuid+zlib
         prefix: /usr
-    gmake:
+    git:
       externals:
-      - spec: gmake@4.3
+      - spec: git@2.34.1~tcltk
+        prefix: /usr
+    coreutils:
+      externals:
+      - spec: coreutils@8.32
+        prefix: /usr
+    automake:
+      externals:
+      - spec: automake@1.16.5
         prefix: /usr
     findutils:
       externals:
       - spec: findutils@4.8.0
+        prefix: /usr
+    tar:
+      externals:
+      - spec: tar@1.34
+        prefix: /usr
+    gettext:
+      externals:
+      - spec: gettext@0.21
         prefix: /usr
     cmake:
       externals:
