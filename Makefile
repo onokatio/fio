@@ -219,10 +219,10 @@ ifdef CONFIG_LIBPMEM
   ENGINES += libpmem
 endif
 ifdef CONFIG_CHFS
-  libchfs_SRCS = engines/libchfs.c
-  libchfs_LIBS = $(CHFS_LIBS)
-  libchfs_CFLAGS += $(CHFS_CFLAGS)
-  ENGINES += libchfs
+  chfs_SRCS = engines/chfs.c
+  chfs_LIBS = $(CHFS_LIBS)
+  chfs_CFLAGS += $(CHFS_CFLAGS)
+  ENGINES += chfs
 endif
 ifdef CONFIG_IME
   SOURCE += engines/ime.c
