@@ -29,18 +29,18 @@
  * the given option. Just add a padding pointer unless the io engine has
  * something usable.
  */
-struct fio_skeleton_options {
+struct fio_chfs_options {
 	void *pad; /* avoid ->off1 of fio_option becomes 0 */
-	unsigned int dummy;
+	char *server;
 };
 
 static struct fio_option options[] = {
 	{
-		.name	= "chfs",
-		.lname	= "ldummy",
-		.type	= FIO_OPT_STR_SET,
-		.off1	= offsetof(struct fio_skeleton_options, dummy),
-		.help	= "Set dummy",
+		.name	= "chfs_server",
+		.lname	= "chfs server",
+		.type	= FIO_OPT_STR_STORE,
+		.off1	= offsetof(struct fio_chfs_options, server),
+		.help	= "Set chfs server address and port",
 		.category = FIO_OPT_C_ENGINE, /* always use this */
 		.group	= FIO_OPT_G_INVALID, /* this can be different */
 	},
@@ -68,15 +68,6 @@ static struct io_u *fio_skeleton_event(struct thread_data *td, int event)
  */
 static int fio_skeleton_getevents(struct thread_data *td, unsigned int min,
 				  unsigned int max, const struct timespec *t)
-{
-	return 0;
-}
-
-/*
- * The ->cancel() hook attempts to cancel the io_u. Only relevant for
- * async io engines, and need not be supported.
- */
-static int fio_skeleton_cancel(struct thread_data *td, struct io_u *io_u)
 {
 	return 0;
 }
@@ -123,8 +114,14 @@ static int fio_skeleton_prep(struct thread_data *td, struct io_u *io_u)
  * any structures that this io engine requires to keep track of io. Not
  * required.
  */
-static int fio_skeleton_init(struct thread_data *td)
+static int fio_chfs_init(struct thread_data *td)
 {
+	struct fio_chfs_options *options = td->eo;
+	dprint(FD_IO, "chfs: %s\n", chfs_version());
+	int init_result = chfs_init(options->server);
+	if (init_result != 0){
+		log_err("error chfs_init() returns %d", init_result);
+	}
 	return 0;
 }
 
@@ -133,8 +130,9 @@ static int fio_skeleton_init(struct thread_data *td)
  * done doing io. Should tear down anything setup by the ->init() function.
  * Not required.
  */
-static void fio_skeleton_cleanup(struct thread_data *td)
+static void fio_chfs_cleanup(struct thread_data *td)
 {
+	chfs_term();
 }
 
 /*
@@ -143,7 +141,18 @@ static void fio_skeleton_cleanup(struct thread_data *td)
  */
 static int fio_skeleton_open(struct thread_data *td, struct fio_file *f)
 {
-	return generic_open_file(td, f);
+	struct stat s;
+	int ret = chfs_stat(f->file_name, &s);
+	if (ret != 0 && errno == ENOENT){
+		f-> fd = chfs_create(f->file_name, 0, 0644);
+	} else {
+		f->fd = chfs_open(f->file_name, O_CREAT);
+	}
+	if(f->fd == -1){
+		log_err("chfs open failed %s\n", f->file_name);
+		return 1;
+	}
+	return 0;
 }
 
 /*
@@ -151,7 +160,7 @@ static int fio_skeleton_open(struct thread_data *td, struct fio_file *f)
  */
 static int fio_skeleton_close(struct thread_data *td, struct fio_file *f)
 {
-	return generic_close_file(td, f);
+	return chfs_close(f->fd);
 }
 
 /*
@@ -212,13 +221,12 @@ static int fio_skeleton_get_max_open_zones(struct thread_data *td,
 struct ioengine_ops ioengine = {
 	.name		= "chfs",
 	.version	= FIO_IOOPS_VERSION,
-	.init		= fio_skeleton_init,
+	.init		= fio_chfs_init,
 	.prep		= fio_skeleton_prep,
 	.queue		= fio_skeleton_queue,
-	.cancel		= fio_skeleton_cancel,
 	.getevents	= fio_skeleton_getevents,
 	.event		= fio_skeleton_event,
-	.cleanup	= fio_skeleton_cleanup,
+	.cleanup	= fio_chfs_cleanup,
 	.open_file	= fio_skeleton_open,
 	.close_file	= fio_skeleton_close,
 	.get_zoned_model = fio_skeleton_get_zoned_model,
@@ -226,7 +234,7 @@ struct ioengine_ops ioengine = {
 	.reset_wp	= fio_skeleton_reset_wp,
 	.get_max_open_zones = fio_skeleton_get_max_open_zones,
 	.options	= options,
-	.option_struct_size	= sizeof(struct fio_skeleton_options),
+	.option_struct_size	= sizeof(struct fio_chfs_options),
 };
 
 static void fio_init fio_chfs_register(void)
